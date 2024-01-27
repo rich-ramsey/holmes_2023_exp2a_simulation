@@ -1,0 +1,617 @@
+---
+title: "sims"
+author: "Rich"
+date: "2024-01-25"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file simulates data and runs power analyses based on the modelling of
+Exp2a from Holmes et al., 2023.
+
+This is a little redundant in some ways, as with simple designs, then G*Power
+could a quick and dirty job, if you plug in a standardised effect size between
+two conditions, for example. On that note, Cohen's dz is over 1 for key comparisons,
+which means N=12 would give you > 90% power.
+
+But that kind of quick and dirty approach ignores the multi-level structure to the
+data and varying effects by participant, which is the benefit of the multi-level
+modelling approach taken here.
+
+
+Most of the below is based on two sources:
+
+1) The {faux} package: https://debruine.github.io/faux/
+
+2) Solomon Kurz's blog post: https://solomonkurz.netlify.app/blog/bayesian-power-analysis-part-i/
+
+## load the libraries that we will be using ## 
+
+## install ##
+
+you may only need the additional faux package here
+
+```{r}
+# install.packages(c("faux"))
+```
+
+if not, then run the next chunk, which installs them all.
+
+```{r install-pkg}
+# install.packages("remotes")
+# remotes::install_github("stan-dev/cmdstanr")
+# 
+# install.packages("devtools")
+# devtools::install_github("jmgirard/standist")
+# 
+# install.packages(c("tidyverse", "RColorBrewer", "patchwork", "brms",
+#                    "tidybayes", "bayesplot", "patchwork", "future", "faux"))
+```
+
+take a snapshot of loaded packages and update the lock.file using renv
+
+```{r snapshot-renv}
+# take a snapshot and update the lock.file
+# renv::snapshot() # this is only necessary when new packages or installed or packages are updated.
+```
+
+## load ##
+
+```{r load-pkg}
+pkg <- c("cmdstanr", "standist", "tidyverse", "RColorBrewer", "patchwork", 
+         "brms", "tidybayes", "bayesplot", "future", "parallel", "modelr",
+         "faux")
+
+lapply(pkg, library, character.only = TRUE)
+```
+
+## settings ##
+
+```{r set-options}
+options(brms.backend = "cmdstanr",
+        mc.cores = parallel::detectCores(),
+        future.fork.enable = TRUE,
+        future.rng.onMisuse = "ignore") ## automatically set in RStudio
+
+supportsMulticore()
+
+detectCores()
+```
+
+## plot settings ##
+
+```{r}
+## Set the amount of dodge in figures
+pd <- position_dodge(0.7)
+pd2 <- position_dodge(1)
+```
+
+theme settings for ggplot
+
+```{r, eval = F}
+theme_set(
+  theme_bw() +
+    theme(text = element_text(size = 18), 
+          title = element_text(size = 18),
+          legend.position = "bottom")
+)
+```
+
+## section 1 - read in prior models and data ##
+
+this is just useful as a reminder of key values and structures
+
+data
+
+```{r}
+data <- read_csv("data/data.csv")
+head(data)
+```
+
+model fit
+
+```{r}
+b1 <- readRDS("models/b1.rds")
+summary(b1)
+```
+
+model fit of simulated data
+
+```{r}
+# based on model b1
+# fit <- readRDS("models/sims/fit.rds") 
+# summary(fit)
+```
+
+## section 2 - simulate some data ##
+
+## based on the count dv and b1 model ##
+
+define some values
+
+```{r}
+# define parameters
+# specify some features of the design
+subj_n = 12  # number of subjects
+rep_n = 8 # number of trial repeats 
+
+# set fixed effects
+b0 = 14.99    # intercept (no stimulation)
+b1 = -1.71    # fixed effect of left stim < no stim
+b2 = -0.16    # fixed effect of right stim < no stim
+
+# set varying effects (by subject)
+u0s_sd = 1.14   # varying intercept SD 
+u1s_sd = 1.39   # varying b1 slope SD 
+u2s_sd = 0.40   # varying b2 slope SD
+
+# set correlations between varying effects
+# cors between mean average effects first
+r01s = -0.52   # correlation between varying effects 0 and 1 
+r02s = -0.11   # correlation between varying effects 0 and 2 
+r12s = 0.34  # correlation between varying effects 1 and 2 
+
+# sigma
+sigma_sd = 1.26 # error SD
+```
+
+make a correlation matrix 
+
+```{r}
+cors = c(r01s, r02s,
+         r12s)
+```
+
+setup the data structure
+
+```{r}
+# make it reproducible
+set.seed(1)
+
+# set up data structure
+d1 <- add_random(subj = subj_n, rep = rep_n) %>%
+  # add and recode categorical variables
+  add_within("subj", condition = c("none", "left", "right")) %>%
+  add_contrast("condition", "treatment", add_cols = TRUE, 
+               colnames = c("left", "right")) %>%
+  # add random effects 
+  add_ranef("subj", u0s = u0s_sd, u1s = u1s_sd, u2s = u2s_sd,
+            .cors = cors) %>%
+  add_ranef(sigma = sigma_sd) %>%
+  # calculate dv
+  mutate(count = b0 + u0s + (b1 + u1s) * left + (b2 + u2s) * right + sigma)  
+
+head(d1)
+str(d1)
+summary(d1)
+
+# save initial data
+write_csv(d1, "data/sims/d1.csv") # 
+```
+
+data.check
+
+```{r}
+data.check <- d1 %>% 
+  distinct(rep, condition)
+data.check
+```
+
+density plot 
+
+```{r}
+p2.1 <- ggplot(d1, aes(x=count, fill=condition)) +
+   geom_density(alpha = 0.3, colour = "darkgrey") +
+   scale_fill_brewer(palette = "Dark2")+
+   theme(panel.grid = element_blank()) +
+   ggtitle("count by stimulation condition")
+p2.1
+
+ggsave ("figures/sims/d1_count_density.jpeg")
+```
+
+create some group average summary data
+
+per pid
+
+```{r}
+summary_pid <- d1 %>% 
+  group_by(subj, condition) %>% 
+  summarise(mean = mean(count)) %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("left", "none", "right")))
+summary_pid
+```
+
+at the group level
+
+```{r}
+summary <- d1 %>% 
+  group_by(condition) %>% 
+  summarise(mean = mean(count),
+            sd = sd(count),
+            n = length(unique(subj)), # n here is the total subjs
+            sem = (sd/sqrt(length(unique(subj)))),
+            ci = sem*1.96) %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("left", "none", "right")))
+summary
+```
+
+violin
+
+```{r}
+p2.2 <- ggplot(summary_pid, aes(x=condition, y = mean, 
+                                fill = condition, colour = condition)) +
+   geom_jitter(position=position_jitterdodge(dodge.width =1), 
+               alpha = 1, colour = "darkgrey") +
+   geom_line(aes(group=subj), 
+             colour = "darkgrey") +
+   geom_violin(alpha = 0.7) +
+   geom_point(data = summary, 
+             aes(y = mean), size = 3, position=pd2, colour="black") +
+   geom_errorbar(data = summary,
+                aes(y = mean, ymin = mean-sem, ymax = mean +sem),
+                width=.2, position=pd2, colour = "black") +
+   geom_line(data = summary, 
+            aes(y = mean, group=1),
+            position=pd2,  colour = "black") +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_colour_brewer(palette = "Dark2") +
+   ggtitle("simdat1 count by stimulation condition")
+p2.2
+
+ggsave ("figures/sims/d1_count_violin.jpeg")
+```
+
+this also looks fairly sensible
+
+## section 3 - build an initial model with one simulated dataset ##
+
+This initial model will serve as the basis for other models to be built from using
+the 'update' function in brms. It saves a lot of time this way.
+
+The models will be built in brms.
+
+## formula ##
+
+```{r}
+formula = bf(count ~ 1 + condition +
+               (1 + condition | subj))
+```
+
+## check the priors available ##
+
+```{r}
+get_prior(formula,
+          data = d1, family = gaussian())
+```
+
+## set priors ##
+
+```{r}
+priors <- c(
+  set_prior("normal(14, 3)", class = "Intercept"),
+  set_prior("normal(0, 1)", class = "b"),
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("normal(0, 1)", class = "sigma"),
+  set_prior("lkj(2)", class = "cor")
+)
+```
+
+change the condition factor coding to make the labels simpler in the model output
+
+```{r}
+d1 <- d1 %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("none", "left", "right")))
+head(d1)
+str(d1)
+```
+
+## fit the model ##
+
+```{r}
+t1 <- Sys.time()
+
+plan(multicore)
+fit <-
+  brm(data = d1,
+      family = gaussian(),
+      formula = formula,
+      prior = priors,
+      iter = 2000, warmup = 1000, chains = 4,
+      cores = 8, 
+      save_pars = save_pars(all=TRUE),
+      seed = 1)
+
+t2 <- Sys.time()
+
+t2 - t1
+
+# Time difference of 25s macbook
+# iMac?
+```
+
+let's take a look 
+
+```{r}
+# chains
+plot(fit)
+# summary
+print(fit)
+# fixed effects
+fixef(fit)
+
+# save initial fit
+saveRDS(fit, "models/sims/fit_d1.rds") ## fit based on values derived from model b1
+```
+
+## section 4 - update the fit ##
+
+update the fit and check the time taken (to see the time difference when 
+compared to not using the 'update' function).
+
+```{r}
+set.seed(2)
+
+# create new data
+d1u <- add_random(subj = subj_n, rep = rep_n) %>%
+  # add and recode categorical variables
+  add_within("subj", condition = c("none", "left", "right")) %>%
+  add_contrast("condition", "treatment", add_cols = TRUE, 
+               colnames = c("left", "right")) %>%
+  # add random effects 
+  add_ranef("subj", u0s = u0s_sd, u1s = u1s_sd, u2s = u2s_sd,
+            .cors = cors) %>%
+  add_ranef(sigma = sigma_sd) %>%
+  # calculate dv
+  mutate(count = b0 + u0s + (b1 + u1s) * left + (b2 + u2s) * right + sigma) %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("none", "left", "right")))
+head(d1u)
+
+# update the fit and supply new data
+
+t1 <- Sys.time()
+
+plan(multicore)
+updated_fit <-
+  update(fit,
+         newdata = d1u,
+         seed = 2)
+
+t2 <- Sys.time()
+
+t2 - t1
+
+# Time difference of 4s macbook
+```
+
+let's take a look 
+
+```{r}
+# chains
+plot(updated_fit)
+# summary
+print(updated_fit)
+# fixed effects
+fixef(updated_fit)
+
+# save the updated fit
+saveRDS(updated_fit, "models/sims/updated_fit_d1u.rds")
+```
+
+## section 5 - build a simulation function ##
+
+```{r}
+sim1 <- function(subj_n = 12, rep_n = 8,  # these can be changed when calling the function
+                b0 = 14.99, b1 = -1.71, b2 = -0.16,        # fixed effects
+                u0s_sd = 1.14, u1s_sd = 1.39, u2s_sd = 0.4,   # varying effects
+                cors = c(-0.52, -0.11,
+                         0.34),   # cor
+                sigma_sd = 1.26,           # error term
+                ... # helps the function work with pmap() below
+                ) {
+
+  # set up data structure
+  data <- add_random(subj = subj_n, rep = rep_n) %>%
+  # add and recode categorical variables
+  add_within("subj", condition = c("none", "left", "right")) %>%
+  add_contrast("condition", "treatment", add_cols = TRUE, 
+               colnames = c("left", "right")) %>%
+  # add random effects 
+  add_ranef("subj", u0s = u0s_sd, u1s = u1s_sd, u2s = u2s_sd,
+            .cors = cors) %>%
+  add_ranef(sigma = sigma_sd) %>%
+  # calculate dv
+  mutate(count = b0 + u0s + (b1 + u1s) * left + (b2 + u2s) * right + sigma) %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("none", "left", "right")))
+
+  # glimpse(data) # only use this when testing the code
+}
+```
+
+test it
+
+```{r}
+# sim1(subj_n = 25, rep_n = 10)
+```
+
+# section 6 - run the full simulation ##
+
+before running the full thing, I would always first check the pipeline with 2 reps.
+
+## now run it with 1000 reps per variation ##
+
+```{r}
+plan(multicore)
+x <- crossing(
+  repx = 1:1000, # number of replicates
+  subj_n = c(8, 12, 16), # range of subject N
+  b1 = c(-0.5, -1, -1.71) # effect of the key interaction
+) %>%
+  mutate(d = pmap(., sim1)) %>%
+  mutate(params = map2(d, repx, ~update(fit, newdata = .x, seed = .y) %>% # if you left the code here, then it would store the models and data
+                     fixef() %>% 
+                     data.frame() %>% 
+                     rownames_to_column("parameter"))) %>% 
+  select(-d) # adding this line in removes the data from the stored tibble 'x'. 
+```
+
+take a look
+
+```{r}
+head(x)
+```
+
+select parameters of interest to summarise and visualise
+
+```{r}
+parameters <-
+  x %>% 
+  unnest(params)
+head(parameters)
+```
+
+save out parameters
+
+```{r}
+# save the parameters
+write_csv(parameters, "data/sims/sim_p1.csv") #  design based on pilot data
+```
+
+alternatively, read in saved parameters, if already computed and saved.
+
+```{r}
+## read in
+# parameters <- read_csv("data/sims/sim_p1.csv") 
+# head(parameters)
+```
+
+rename parameters and create factors
+
+```{r}
+bmx_params <- parameters %>%
+  filter(parameter != "Intercept") %>%
+  mutate(repx = factor(repx),
+         subj_n = factor(subj_n),
+         b1 = factor(b1),
+         parameter = if_else(parameter == "conditionleft", "left", "right"),
+         parameter = factor(parameter, 
+                            levels = c("left", "right")))
+head(bmx_params)
+str(bmx_params)
+```
+
+calculate average values
+
+```{r}
+bmx_params_qi <- bmx_params %>%
+  filter(parameter == "left") %>% 
+  group_by(subj_n, b1, parameter) %>% 
+  median_qi(Estimate)
+head(bmx_params_qi)
+```
+
+[note - I think the pull towards zero by the prior might be too strong here. Re-do
+sims with a looser prior so that the target values hit the right spot more often]
+
+and plot
+
+```{r}
+p_bm_fixed <- ggplot(bmx_params, aes(x = Estimate, y = fct_rev(parameter), 
+                                   fill=parameter)) +  
+  geom_vline(xintercept = 0, color = "grey", alpha = 5/10) +
+  stat_halfeye() +
+  labs(title = "Avg. simulated coefficient plot for fixed effects (predictors)",
+       x = NULL, y = NULL) +
+  theme_bw() +
+  scale_fill_brewer(palette = "Dark2") +
+  theme(panel.grid   = element_blank(),
+        panel.grid.major.y = element_line(color = alpha("firebrick4", 1/2), linetype = 3),
+        axis.text.y  = element_text(hjust = 0),
+        axis.ticks.y = element_blank(),
+        legend.position = "none") +
+  coord_cartesian(xlim =c(-2, 2)) +
+  scale_x_continuous(breaks=seq(-2,2,0.5)) +
+  facet_grid(fct_rev(subj_n)~b1)
+p_bm_fixed
+
+ggsave ("figures/sims/bm_p1_fixef.jpeg",
+        width = 9, height = 7)
+```
+
+calculate power i.e., % Q97.5 < 0
+
+```{r}
+bm_power <- bmx_params %>% 
+  filter(parameter == "left") %>%
+  group_by(subj_n, b1) %>% # here we would group_by stuff that we varied in the sims
+  mutate(check = ifelse(Q97.5 < 0, 1, 0)) %>% 
+  summarise(power = mean(check))
+bm_power
+```
+
+plot power
+
+```{r}
+p_bm_power <- ggplot(bm_power, aes(x = fct_rev(b1), y = subj_n, fill = power)) +
+  geom_tile() +
+  geom_text(aes(label = sprintf("%.3f", power)), color = "white", size = 10) +
+  scale_fill_viridis_c(limits = c(0, 1))
+p_bm_power
+
+ggsave ("figures/sims/bm_p1_power.jpeg")
+```
+
+plot parameters and include power as a text label
+
+wrangle
+
+```{r}
+bm_plot_params <- bmx_params %>%
+  filter(parameter == "left") %>%
+  mutate(above_zero = if_else(Q97.5 > 0, "yes", "no"), 
+         above_zero = factor(above_zero, levels = c("no", "yes"))) %>% 
+  inner_join(bm_power, by = c("subj_n", "b1")) %>% 
+  mutate(power = round(power * 100, 2)) 
+head(bm_plot_params)
+```
+
+plot
+
+```{r}
+p_bm_params <- bm_plot_params %>%
+  ggplot(aes(x = repx, y = Estimate, ymin = Q2.5, ymax = Q97.5)) +
+  geom_pointrange(fatten = 1/2, aes(colour=above_zero)) +
+  geom_hline(yintercept = 0, colour = "red") +
+  # geom_hline(aes(yintercept = 0.35), colour = "blue") + # this would add at the target effect size
+  scale_colour_manual(values=c("darkgrey", "black")) +
+  geom_text(aes(x=700, y=2,
+                label = sprintf("%.1f%s", power, "% power")), 
+            color = "darkgrey", size = 4) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "sim # (i.e., simulation index)",
+       y = expression(beta("b1"))) +
+  scale_x_discrete(breaks = NULL) +
+  facet_grid(fct_rev(subj_n)~fct_rev(b1))
+p_bm_params
+
+ggsave ("figures/sims/bm_p1_parameters.jpeg",
+        width = 6, height = 6)
+```
+
+save out some files
+
+```{r}
+write_csv(bmx_params, "data/sims/bmx_p1_params.csv")
+write_csv(bmx_params_qi, "data/sims/bmx_p1_param_qi.csv")
+```

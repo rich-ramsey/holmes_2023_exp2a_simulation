@@ -1,0 +1,229 @@
+---
+title: "wrangle"
+author: "Rich"
+date: "2024-01-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file wrangles data for Exp2a of Holmes et al., 2023.
+
+## load the libraries that we will be using ## 
+
+## install ##
+
+```{r install-pkg}
+# install.packages(c("tidyverse", "RColorBrewer", "patchwork"))
+```
+
+take a snapshot of loaded packages and update the lock.file using renv
+
+```{r snapshot-renv}
+# take a snapshot and update the lock.file
+# renv::snapshot() # this is only necessary when new packages or installed or packages are updated.
+```
+
+## load ##
+
+```{r load-pkg}
+pkg <- c("tidyverse", "RColorBrewer", "patchwork")
+
+lapply(pkg, library, character.only = TRUE)
+```
+
+## plot settings ##
+
+```{r}
+## Set the amount of dodge in figures
+pd <- position_dodge(0.7)
+pd2 <- position_dodge(1)
+```
+
+theme settings for ggplot
+
+```{r, eval = F}
+theme_set(
+  theme_bw() +
+    theme(text = element_text(size = 18), 
+          title = element_text(size = 18),
+          legend.position = "bottom")
+)
+```
+
+## section 1 - read in the raw data ##
+
+```{r}
+raw <- read_delim("data/P10_E8_pegboard.txt", col_names = FALSE)
+head(raw)
+glimpse(raw)
+summary(raw)
+```
+
+## section 2 - wrangle into long format ##
+
+```{r}
+data <- raw %>% 
+  add_column(pid = 1:12, .before = "X1") %>% 
+  pivot_longer(-pid,
+               names_to = "trial_id",
+               values_to = "count") %>%
+  mutate(condition = rep(c("left", "right", "none"), each = 8, times = 12),
+         trial = rep(1:8, times = 3*12))
+head(data)
+glimpse(data)
+summary(data)
+```
+
+remove unnecessary columns, re-order columns and create a factor for condition
+
+```{r}
+data <- data %>% 
+  select(pid, trial, condition, count) %>%
+  mutate(condition = factor(condition,
+                            levels = c("left", "none", "right")))
+head(data)
+```
+
+data check
+
+```{r}
+data.check <- data %>% 
+  distinct(trial, condition)
+data.check
+```
+
+pid check
+
+```{r}
+pid.check <- data %>% 
+  group_by(pid) %>% 
+  tally()
+pid.check
+```
+
+## section 3 - plot the raw data ##
+
+create summary data 
+
+at the pid level
+
+```{r}
+summary_pid <- data %>% 
+  group_by(pid, condition) %>% 
+  summarise(mean = mean(count),
+            sd = sd(count),
+            n = length(unique(trial)), # n here is the total subjs
+            sem = (sd/sqrt(length(unique(trial)))),
+            ci = sem*1.96)
+summary_pid
+```
+
+at the group level
+
+```{r}
+summary <- data %>% 
+  group_by(condition) %>% 
+  summarise(mean = mean(count),
+            sd = sd(count),
+            n = length(unique(pid)), # n here is the total subjs
+            sem = (sd/sqrt(length(unique(pid)))),
+            ci = sem*1.96)
+summary
+```
+
+violin plots
+
+```{r}
+p3.1 <- ggplot(summary_pid, aes(x=condition, y = mean, 
+                                fill=condition, colour = condition)) +
+   geom_jitter(position=position_jitterdodge(dodge.width =1), 
+               alpha = 1, colour = "darkgrey") +
+   geom_line(aes(group=pid), 
+             colour = "darkgrey") +
+   geom_violin(alpha = 0.7) +
+   geom_point(data = summary, 
+             aes(y = mean), size = 3, colour="black") +
+   geom_line(data=summary, 
+             aes(group=1), colour = "black") +
+   geom_errorbar(data = summary,
+                aes(y = mean, ymin = mean-sem, ymax = mean +sem),
+                width=.2, colour = "black") +
+   scale_fill_brewer(palette = "Dark2") +
+   scale_colour_brewer(palette = "Dark2") +
+   ggtitle("pegboard count by stimulation condition")
+p3.1
+
+ggsave("figures/violin.jpeg",
+       width = 8, height = 6)
+```
+
+not perfect, but does the job for now.
+
+what about difference scores?
+
+## calculate differences score compared to no stimulation ##
+
+at the pid level
+
+```{r}
+diff_pid <- summary_pid %>%
+  select(pid, condition, mean) %>% 
+  pivot_wider(id_cols = c(pid),
+              names_from = "condition",
+              values_from = "mean") %>% 
+  mutate(left_none = left - none,
+         right_none = right - none,
+         left_right = left - right) %>% 
+  select(pid, left_none, right_none, left_right) %>% 
+  pivot_longer(cols = -pid,
+               names_to = "contrasts",
+               values_to = "diff")
+head(diff_pid)
+```
+
+at the group level
+
+```{r}
+diff_group <- diff_pid %>%
+  group_by(contrasts) %>% 
+  summarise(mean_diff = mean(diff),
+            sd = sd(diff),
+            sem = (sd/sqrt(10)),
+            ci = sem*1.96,
+            dz = mean_diff/sd) 
+diff_group
+```
+
+plot
+
+violin
+
+diff in original units
+
+```{r}
+p3.2 <- ggplot(diff_pid, aes(x=contrasts, y = diff)) +
+   geom_jitter(width = 0.1, alpha = 1, colour = "darkgrey") +
+   geom_violin(alpha = 0.7) +
+   geom_point(data = diff_group, 
+             aes(y = mean_diff), size = 3, position=pd2, colour="black") +
+   geom_errorbar(data = diff_group,
+                aes(y = mean_diff, ymin = mean_diff-sem, ymax = mean_diff +sem),
+                width=.2, position=pd2, colour = "black") +
+   ggtitle("difference score between stimulation conditions") 
+p3.2
+
+ggsave("figures/diffs.jpeg",
+       width = 8, height = 6)
+```
+
+## save out some processed data ##
+
+```{r}
+write_csv(data, "data/data.csv")
+```
+

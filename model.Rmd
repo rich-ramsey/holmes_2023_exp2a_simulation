@@ -1,0 +1,256 @@
+---
+title: "model"
+author: "Rich"
+date: "2024-01-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file fits Bayesian multi-level regression models for Exp2a of Holmes et al., 2023.
+
+## load the libraries that we will be using ## 
+
+## install ##
+
+```{r install-pkg}
+# install.packages("remotes")
+# remotes::install_github("stan-dev/cmdstanr")
+# 
+# install.packages("devtools")
+# devtools::install_github("jmgirard/standist")
+# 
+# install.packages(c("tidyverse", "RColorBrewer", "patchwork", "brms",
+#                     "tidybayes", "bayesplot", "future", "modelr"))
+```
+
+take a snapshot of loaded packages and update the lock.file using renv
+
+```{r snapshot-renv}
+# take a snapshot and update the lock.file
+# renv::snapshot() # this is only necessary when new packages or installed or packages are updated.
+```
+
+## load ##
+
+```{r load-pkg}
+pkg <- c("cmdstanr", "standist", "tidyverse", "RColorBrewer", "patchwork", 
+         "brms", "tidybayes", "bayesplot", "future", "parallel", "modelr")
+
+lapply(pkg, library, character.only = TRUE)
+```
+
+## settings ##
+
+```{r set-options}
+options(brms.backend = "cmdstanr",
+        mc.cores = parallel::detectCores(),
+        future.fork.enable = TRUE,
+        future.rng.onMisuse = "ignore") ## automatically set in RStudio
+
+supportsMulticore()
+
+detectCores()
+```
+
+## plot settings ##
+
+```{r}
+## Set the amount of dodge in figures
+pd <- position_dodge(0.7)
+pd2 <- position_dodge(1)
+```
+
+theme settings for ggplot
+
+```{r, eval = F}
+theme_set(
+  theme_bw() +
+    theme(text = element_text(size = 18), 
+          title = element_text(size = 18),
+          legend.position = "bottom")
+)
+```
+
+## section 1 - read in data and create factors, read in models if computed ##
+
+```{r}
+data <- read_csv("data/data.csv")
+head(data)
+```
+
+create factors for modelling purposes
+
+a couple of options:
+- no stimulation seems like a natural reference category
+- anova style deviation coding also seems sensible.
+
+let's start with reference coding and go from there.
+
+```{r}
+data <- data %>% 
+  mutate(condition = factor(condition, 
+                            levels = c("none", "left", "right")))
+head(data)
+```
+
+read in previous models
+
+```{r}
+b1 <- readRDS("models/b1.rds")
+summary(b1)
+```
+
+## section 2 - build some models ##
+
+## b0 - intercepts only ##
+
+this is just to get things going i.e., a model without any predictors.
+
+# formula #
+
+```{r}
+formula = bf(count ~ 1)
+```
+
+# check the priors available #
+
+we'll just go with a gaussian() to keep things simple
+
+```{r}
+get_prior(formula,
+          data = data, family = gaussian())
+```
+
+## visualise priors ##
+
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
+
+https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations
+
+```{r}
+visualize("normal(14, 1)", "normal(14, 2)", "normal(14, 3)",
+          xlim = c(5, 25))
+```
+
+## set priors ##
+
+```{r}
+priors <- c(
+  set_prior("normal(14, 3)", class = "Intercept"),
+  set_prior("normal(0, 1)", class = "sigma")
+)
+```
+
+# run the model #
+
+```{r}
+plan(multicore)
+b0 <- brm(formula = formula,
+        data = data, family = gaussian(),
+        prior = priors,
+        iter = 2000, warmup = 1000, cores = 8, chains = 4,
+        save_pars = save_pars(all=TRUE),
+        seed = 123,
+        file = "models/b0")
+summary(b0)
+```
+
+## take a look ##
+
+chains
+
+```{r}
+plot(b0)
+```
+
+pp check
+
+```{r}
+pp_b0 <- pp_check(b0, ndraws = 100)
+pp_b0
+```
+
+
+## b1 - add a predictor for condition plus varying intercepts and effects by pid  ##
+
+# formula #
+
+```{r}
+formula = bf(count ~ 1 + condition +
+               (1 + condition | pid))
+```
+
+# check the priors available #
+
+we'll just go with a gaussian() to keep things simple
+
+```{r}
+get_prior(formula,
+          data = data, family = gaussian())
+```
+
+## visualise priors ##
+
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
+
+https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations
+
+```{r}
+visualize("normal(0, 1)", "normal(0, 2)", "normal(0, 3)",
+          xlim = c(-4, 4))
+```
+
+## set priors ##
+
+```{r}
+priors <- c(
+  set_prior("normal(14, 3)", class = "Intercept"),
+  set_prior("normal(0, 1)", class = "b"),
+  set_prior("normal(0, 1)", class = "sd"),
+  set_prior("normal(0, 1)", class = "sigma"),
+  set_prior("lkj(2)", class = "cor")
+)
+
+```
+
+# run the model #
+
+```{r}
+plan(multicore)
+b1 <- brm(formula = formula,
+        data = data, family = gaussian(),
+        prior = priors,
+        iter = 2000, warmup = 1000, cores = 8, chains = 4,
+        save_pars = save_pars(all=TRUE),
+        seed = 123,
+        file = "models/b1")
+summary(b1)
+```
+
+## take a look ##
+
+chains
+
+```{r}
+plot(b1)
+```
+
+pp check
+
+```{r}
+pp_b1 <- pp_check(b1, type = "dens_overlay_grouped", group = "condition", 
+                  ndraws = 100)
+pp_b1
+```
+
+
+We would probably centre the dv for the real thing.
+
+And we may also run a model with condition coded as a deviation coded variable.
