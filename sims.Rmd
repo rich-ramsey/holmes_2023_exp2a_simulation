@@ -292,14 +292,35 @@ get_prior(formula,
           data = d1, family = gaussian())
 ```
 
+## visualise priors ##
+
+here we would normally visualise priors of interest to make a judgment about what
+would constitute weakly informative priors. 
+
+https://github.com/stan-dev/stan/wiki/Prior-Choice-Recommendations
+
+intercept
+
+```{r}
+visualize("normal(14, 1)", "normal(14, 2)", "normal(14, 3)", "normal(14, 4)",
+          xlim = c(5, 25))
+```
+
+effect of condition (b)
+
+```{r}
+visualize("normal(0, 1)", "normal(0, 2)", "normal(0, 3)", "normal(0, 4)",
+          xlim = c(-6, 6))
+```
+
 ## set priors ##
 
 ```{r}
 priors <- c(
   set_prior("normal(14, 3)", class = "Intercept"),
-  set_prior("normal(0, 1)", class = "b"),
-  set_prior("normal(0, 1)", class = "sd"),
-  set_prior("normal(0, 1)", class = "sigma"),
+  set_prior("normal(0, 3)", class = "b"),
+  set_prior("normal(0, 2)", class = "sd"),
+  set_prior("normal(0, 2)", class = "sigma"),
   set_prior("lkj(2)", class = "cor")
 )
 ```
@@ -326,7 +347,7 @@ fit <-
       formula = formula,
       prior = priors,
       iter = 2000, warmup = 1000, chains = 4,
-      cores = 8, 
+      cores = 20, 
       save_pars = save_pars(all=TRUE),
       seed = 1)
 
@@ -334,8 +355,9 @@ t2 <- Sys.time()
 
 t2 - t1
 
-# Time difference of 25s macbook
-# iMac?
+# Time difference 
+# 25s macbook
+# similar on iMac 
 ```
 
 let's take a look 
@@ -349,7 +371,7 @@ print(fit)
 fixef(fit)
 
 # save initial fit
-saveRDS(fit, "models/sims/fit_d1.rds") ## fit based on values derived from model b1
+saveRDS(fit, "models/sims/fit2_d1.rds") ## fit 2 is based on values derived from model b1, but with looser priors
 ```
 
 ## section 4 - update the fit ##
@@ -390,7 +412,9 @@ t2 <- Sys.time()
 
 t2 - t1
 
-# Time difference of 4s macbook
+# Time difference of 
+# 4s macbook
+# 3.74 imac
 ```
 
 let's take a look 
@@ -404,7 +428,7 @@ print(updated_fit)
 fixef(updated_fit)
 
 # save the updated fit
-saveRDS(updated_fit, "models/sims/updated_fit_d1u.rds")
+saveRDS(updated_fit, "models/sims/updated_fit_2_d1u.rds") # fit 2 is based on values derived from model b1, but with looser priors
 ```
 
 ## section 5 - build a simulation function ##
@@ -455,7 +479,7 @@ plan(multicore)
 x <- crossing(
   repx = 1:1000, # number of replicates
   subj_n = c(8, 12, 16), # range of subject N
-  b1 = c(-0.5, -1, -1.71) # effect of the key interaction
+  b1 = c(-1, -1.35, -1.71) # effect of the key interaction
 ) %>%
   mutate(d = pmap(., sim1)) %>%
   mutate(params = map2(d, repx, ~update(fit, newdata = .x, seed = .y) %>% # if you left the code here, then it would store the models and data
@@ -484,7 +508,7 @@ save out parameters
 
 ```{r}
 # save the parameters
-write_csv(parameters, "data/sims/sim_p1.csv") #  design based on pilot data
+write_csv(parameters, "data/sims/sim2_p1.csv") #  sim 2 is based on values derived from model b1, but with looser priors
 ```
 
 alternatively, read in saved parameters, if already computed and saved.
@@ -523,6 +547,9 @@ head(bmx_params_qi)
 [note - I think the pull towards zero by the prior might be too strong here. Re-do
 sims with a looser prior so that the target values hit the right spot more often]
 
+[even after re-doing with looser priors, it still seems a little dragged towards
+zero. But only a little bit. It isn't going to change the overall outcome much.]
+
 and plot
 
 ```{r}
@@ -539,9 +566,9 @@ p_bm_fixed <- ggplot(bmx_params, aes(x = Estimate, y = fct_rev(parameter),
         axis.text.y  = element_text(hjust = 0),
         axis.ticks.y = element_blank(),
         legend.position = "none") +
-  coord_cartesian(xlim =c(-2, 2)) +
-  scale_x_continuous(breaks=seq(-2,2,0.5)) +
-  facet_grid(fct_rev(subj_n)~b1)
+  coord_cartesian(xlim =c(-2.5, 2.5)) +
+  scale_x_continuous(breaks=seq(-2.5,2.5,0.5)) +
+  facet_grid(fct_rev(subj_n)~fct_rev(b1))
 p_bm_fixed
 
 ggsave ("figures/sims/bm_p1_fixef.jpeg",
@@ -565,7 +592,8 @@ plot power
 p_bm_power <- ggplot(bm_power, aes(x = fct_rev(b1), y = subj_n, fill = power)) +
   geom_tile() +
   geom_text(aes(label = sprintf("%.3f", power)), color = "white", size = 10) +
-  scale_fill_viridis_c(limits = c(0, 1))
+  scale_fill_viridis_c(limits = c(0, 1)) +
+  labs(x = "b1")
 p_bm_power
 
 ggsave ("figures/sims/bm_p1_power.jpeg")
