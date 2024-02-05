@@ -44,7 +44,6 @@ lapply(pkg, library, character.only = TRUE)
 If available, this saves time computing them each time 
 
 ```{r}
-# pp models
 b1 <- readRDS("models/b1.rds")
 ```
 
