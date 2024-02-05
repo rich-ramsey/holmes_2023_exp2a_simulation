@@ -14,16 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 This file simulates data and runs power analyses based on the modelling of
 Exp2a from Holmes et al., 2023.
 
-This is a little bit redundant in some ways, as with simple designs, G*Power
-could do a quick and dirty job, if you plug in a standardised effect sizes between
-two conditions, for example. On that note, Cohen's dz is over 1 for key comparisons
-in Holmes et al., 2023, which means N=12 would give you > 90% power.
-
-But that kind of quick and dirty approach ignores the multi-level structure to the
-data and varying effects by participant, which is the benefit of the multi-level
-modelling approach taken here.
-
-
 Most of the below is based on two sources:
 
 1) The {faux} package: https://debruine.github.io/faux/
