@@ -14,10 +14,10 @@ knitr::opts_chunk$set(echo = TRUE)
 This file simulates data and runs power analyses based on the modelling of
 Exp2a from Holmes et al., 2023.
 
-This is a little redundant in some ways, as with simple designs, then G*Power
-could a quick and dirty job, if you plug in a standardised effect size between
-two conditions, for example. On that note, Cohen's dz is over 1 for key comparisons,
-which means N=12 would give you > 90% power.
+This is a little bit redundant in some ways, as with simple designs, G*Power
+could do a quick and dirty job, if you plug in a standardised effect sizes between
+two conditions, for example. On that note, Cohen's dz is over 1 for key comparisons
+in Holmes et al., 2023, which means N=12 would give you > 90% power.
 
 But that kind of quick and dirty approach ignores the multi-level structure to the
 data and varying effects by participant, which is the benefit of the multi-level
@@ -274,7 +274,7 @@ this also looks fairly sensible
 ## section 3 - build an initial model with one simulated dataset ##
 
 This initial model will serve as the basis for other models to be built from using
-the 'update' function in brms. It saves a lot of time this way.
+the 'update' function in brms. It saves time this way.
 
 The models will be built in brms.
 
