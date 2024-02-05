@@ -98,11 +98,12 @@ data <- data %>%
 head(data)
 ```
 
-read in previous models
+read in previous models, if already calculated. This can be useful for just
+taking a look.
 
 ```{r}
-b1 <- readRDS("models/b1.rds")
-summary(b1)
+# b1 <- readRDS("models/b1.rds")
+# summary(b1)
 ```
 
 ## section 2 - build some models ##
