@@ -317,8 +317,8 @@ visualize("normal(0, 1)", "normal(0, 2)", "normal(0, 3)", "normal(0, 4)",
 
 ```{r}
 priors <- c(
-  set_prior("normal(14, 3)", class = "Intercept"),
-  set_prior("normal(0, 3)", class = "b"),
+  set_prior("normal(14, 4)", class = "Intercept"),
+  set_prior("normal(0, 4)", class = "b"),
   set_prior("normal(0, 2)", class = "sd"),
   set_prior("normal(0, 2)", class = "sigma"),
   set_prior("lkj(2)", class = "cor")
@@ -414,7 +414,7 @@ t2 - t1
 
 # Time difference of 
 # 4s macbook
-# 3.74 imac
+# similar on the imac
 ```
 
 let's take a look 
@@ -544,11 +544,8 @@ bmx_params_qi <- bmx_params %>%
 head(bmx_params_qi)
 ```
 
-[note - I think the pull towards zero by the prior might be too strong here. Re-do
-sims with a looser prior so that the target values hit the right spot more often]
-
-[even after re-doing with looser priors, it still seems a little dragged towards
-zero. But only a little bit. It isn't going to change the overall outcome much.]
+[note - these look sensible. Maybe a tiny pull towards zero based on the prior? 
+But nothing to be bothered about, as they look very sensible, on average]
 
 and plot
 
@@ -629,12 +626,12 @@ p_bm_params <- bm_plot_params %>%
   theme(legend.position = "none") +
   labs(x = "sim # (i.e., simulation index)",
        y = expression(beta("b1"))) +
-  scale_x_discrete(breaks = NULL) +
+  scale_x_discrete(breaks = c(1000)) +
   facet_grid(fct_rev(subj_n)~fct_rev(b1))
 p_bm_params
 
 ggsave ("figures/sims/bm_p1_parameters.jpeg",
-        width = 6, height = 6)
+        width = 8, height = 6)
 ```
 
 save out some files
@@ -643,3 +640,165 @@ save out some files
 write_csv(bmx_params, "data/sims/bmx_p1_params.csv")
 write_csv(bmx_params_qi, "data/sims/bmx_p1_param_qi.csv")
 ```
+
+
+## section 7 - we might evaluate precision by looking at the widths of the intervals ##
+
+Instead of just ordering the point-ranges by their seed values, we might instead 
+arrange them by the lower levels.
+
+```{r}
+# wrangle to order by Q2.5
+plot_p <- bmx_params %>%
+  filter(parameter == "left") %>% 
+  arrange(subj_n, b1, Q2.5) %>%
+  mutate(rank = rep(1:1000, times=9)) # 1000 models per variation
+head(plot_p)
+
+# plot
+p_params <- plot_p %>%
+  ggplot(aes(x = rank, y = Estimate, ymin = Q2.5, ymax = Q97.5)) +
+  geom_pointrange(fatten = 1/2) +
+  geom_hline(aes(yintercept = 0), colour = "red") +
+  # geom_hline(aes(yintercept = b1), colour = "blue") + # this would add a line at b1 - the target effect size
+  # scale_colour_manual(values=c("darkgrey","black")) +
+  # geom_text(aes(x=800, y=-1,
+  #               label = sprintf("%.f%s", power, "% power")), color = "darkgrey", size = 4) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  scale_x_discrete("reordered by the lower level of the 95% intervals", breaks = NULL) +
+  ylab(expression(beta[1])) +
+  facet_grid(fct_rev(subj_n) ~ fct_rev(b1))
+p_params
+
+ggsave("figures/params_by_Q2.5.jpeg")
+```
+
+Notice how this arrangement highlights the differences in widths among the 
+intervals. The wider the interval, the less precise the estimate. Some intervals
+were wider than others, but all tended to hover in a similar range. We might 
+quantify those ranges by computing a width variable.
+
+```{r}
+plot_p <-
+  plot_p %>% 
+  mutate(width = Q97.5 - Q2.5)
+
+head(plot_p)
+```
+
+Here’s the width distribution.
+
+```{r}
+p_density <- plot_p %>% 
+  ggplot(aes(x = width)) +
+  geom_histogram(binwidth = .01) +
+  geom_rug(linewidth = 1/6) +
+  facet_grid(fct_rev(subj_n) ~ fct_rev(b1))
+p_density
+
+ggsave("figures/width_density.jpeg")
+```
+
+The widths of our 95% intervals range from 1-4 across the variation in 
+parameters. 
+
+N=12 or 16 looks pretty good, but this of course needs domain knowledge to 
+interpret what level of precision might be useful.
+
+Let’s focus a bit and take a random sample from a few of the simulation iterations.
+
+Here, we just focus on one effect size and sample 10 simulations per sample size.
+
+```{r}
+set.seed(1)
+
+plot_p %>%
+  filter(b1 == "-1.35") %>% 
+  group_by(subj_n, b1) %>% 
+  sample_n(10) %>% 
+  mutate(repx = repx %>% as.character()) %>%
+
+  ggplot(aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = repx,
+             colour = subj_n)) +
+  # geom_vline(xintercept = c(0, .5), color = "white") +
+  geom_pointrange() +
+  labs(x = expression(beta[1]),
+       y = "repx #") +
+  # scale_y_continuous(breaks = c(25, 75, 25)) +
+  # xlim(-1, 1) 
+  facet_grid(fct_rev(subj_n)~fct_rev(b1), scales = "free_y")
+```
+
+So instead of focusing on rejecting a null hypothesis, we might instead 
+determine the sample size we need to have most of our 95% 
+intervals come in at a certain level of precision. This has been termed the 
+accuracy in parameter estimation [AIPE; Maxwell et al. ( 2008); see also 
+Kruschke ( 2015)] approach to sample size planning.
+
+Thinking in terms of AIPE, in terms of precision, let’s say we wanted widths of 
+3, 2. Here’s how we did with our sims.
+
+```{r}
+plot_p %>%
+  group_by(subj_n, b1) %>% 
+  mutate(below_3 = if_else(width < 3, 1, 0),
+         below_2 = if_else(width < 2, 1, 0)) %>% 
+  summarise(power_3 = mean(below_3),
+            power_2 = mean(below_2))
+
+#   subj_n b1    power_3 power_2
+#   <fct>  <fct>   <dbl>   <dbl>
+# 1 8      -1.71   0.895   0.295
+# 2 8      -1.35   0.919   0.309
+# 3 8      -1      0.927   0.32 
+# 4 12     -1.71   0.999   0.734
+# 5 12     -1.35   0.999   0.715
+# 6 12     -1      1       0.741
+# 7 16     -1.71   1       0.961
+# 8 16     -1.35   1       0.96 
+# 9 16     -1      1       0.972
+```
+
+ok, at N=16, widths < 1 still look good. 
+
+Our simulation suggests we have about a >95% probability of achieving 95% CI 
+widths of 1 or smaller with n=16.
+
+That's not bad, I guess. But it's a little hard to tell. Still obsessed with 
+clearing zero. We knew from the first sim that N=75 was good for clearing zero 
+at b1=0.5 and above. So what has this told us? I guess it tells us where the 
+limit is, in terms of precision, with a design like this?
+
+Though a little nonsensical, the .8 criterion would give our AIPE analyses a 
+sense of familiarity with traditional power analyses, which some reviewers might
+appreciate. But in his text, Kruschke mentioned several other alternatives. 
+One would be to set maximum value for our CI widths and simulate to find the nn 
+necessary so all our simulations pass that criterion. Another would follow 
+Joseph, Wolfson, and du Berger ( 1995, 1995), who suggested we shoot for an N 
+that produces widths that pass that criterion on average. Here’s how we did 
+based on the average-width criterion.
+
+```{r}
+plot_p %>%
+  group_by(subj_n, b1) %>%
+  summarise(avg_width = mean(width))
+
+#  subj_n b1    avg_width
+#   <fct>  <fct>     <dbl>
+# 1 8      -1.71      2.28
+# 2 8      -1.35      2.25
+# 3 8      -1         2.25
+# 4 12     -1.71      1.79
+# 5 12     -1.35      1.81
+# 6 12     -1         1.78
+# 7 16     -1.71      1.54
+# 8 16     -1.35      1.55
+# 9 16     -1         1.53
+```
+
+ok, so the average for N=12 and N=16 are under 2. But all of these effect sizes
+are a little arbitrary, so what the bother? I guess it helps guide the design 
+of an experiment by informing which values are likely to be able to be separated
+from which other values with what degree of precision and conistency over many
+experiments. 
