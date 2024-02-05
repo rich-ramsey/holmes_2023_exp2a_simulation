@@ -12,13 +12,14 @@ future similar experiments may be expected to achieve, on average.
 ## Context ##
 
 It is worth emphasising that the approach taken here is a little bit redundant
-in some ways. With simple designs, G*Power can calculate power, if
-you plug in a relevant standardised effect size, for example. On that note, 
-Cohen's dz is over 1 for key comparisons in Holmes et al., 2023, which means 
-N=12 would give you > 90% power. So without all the fuss here, you can get a 
-estimate of power already. So, why bother?
+in some ways. With simple designs, [G*Power](https://www.psychologie.hhu.de/arbeitsgruppen/allgemeine-psychologie-und-arbeitspsychologie/gpower) 
+can calculate power, if you plug in a relevant standardised effect size, for example. 
+On that note, Cohen's dz is over 1 for key comparisons in Holmes et al., 2023, 
+which means N=12 would give you > 90% power. So without all the fuss here, you 
+can get a estimate of power already. So, why bother?
 
-That kind of quick and dirty approach ignores the multi-level structure to the
+For some, there may not be any substantive point. And that's fine. But, for me, 
+that kind of quick and dirty approach ignores the multi-level structure to the 
 data and varying effects by participant, which is the benefit of the multi-level
 modelling approach taken here. And once you've got the basic structure in place,
 you could apply the multi-level model plus data simulation approach to a wide range of
@@ -28,9 +29,8 @@ designs, so it might be helpful in the longer term.
 
 Most of the content is inspired by two people:
 
-    Lisa DeBruine and her amazing {faux} R package: https://debruine.github.io/faux/
-
-    The mighty Solomon Kurz and his Bayesian "power" blog post: 
+- Lisa DeBruine and her amazing {faux} R package: https://debruine.github.io/faux/
+- The mighty Solomon Kurz and his Bayesian "power" blog post: 
     https://solomonkurz.netlify.app/blog/bayesian-power-analysis-part-i/
   
     
@@ -75,11 +75,11 @@ kick-in and make things happen with appropriate package versions.
 
 The following folders should be self-explanatory:
 
-*/data/*
-*/figures/*
-*/models/*
-*/tables/*
+- **/data/** 
+- **/figures/**
+- **/models/**
+- **/tables/**
 
-Within these folders, a subfolder called */sims/* denotes that the material is 
+Within these folders, a subfolder called **/sims/** denotes that the material is 
 from the data simulations rather than the raw data from the orgininal experiment.
 
