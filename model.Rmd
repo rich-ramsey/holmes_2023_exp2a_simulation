@@ -15,6 +15,15 @@ This file fits Bayesian multi-level regression models for Exp2a of Holmes et al.
 
 ## load the libraries that we will be using ## 
 
+If you've never used brms or stan before to build Bayesian regression models, 
+then take a look here first, as your computer needs setting up: 
+https://github.com/rich-ramsey/cmdstanr_setup
+
+And if you'd rather use lme4 and frequentist statistics because you like that kind
+of thing, then you can do so fairly straightforwardly as brms uses the same 
+formula syntax as lme4. So just switch out brms models for lme4 models in what 
+follows.
+
 ## install ##
 
 ```{r install-pkg}
